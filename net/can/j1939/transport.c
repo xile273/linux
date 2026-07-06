@@ -32,6 +32,14 @@
 #define J1939_ETP_CMD_EOMA 0x17
 #define J1939_ETP_CMD_ABORT 0xff
 
+/* Maximum amount of transmission attempts for a given packet number to
+ * be sent. According to SAE J1939-21 2022 - 5.12.3 Device Response Time and
+ * Timeout Defaults there should be no more than 2 retries (3 requests in total)
+ * before the connection is aborted with reason 5 which corresponds to
+ * J1939_XTP_ABORT_FAULT in this implementation.
+ */
+#define J1939_CTS_MAX_NUM_TRANSMITS 3
+
 enum j1939_xtp_abort {
 	J1939_XTP_NO_ABORT = 0,
 	J1939_XTP_ABORT_BUSY = 1,
@@ -1457,6 +1465,19 @@ j1939_xtp_rx_cts_one(struct j1939_session *session, struct sk_buff *skb)
 	else if (dat[1] > session->pkt.block /* 0xff for etp */)
 		goto out_session_cancel;
 
+	/* If the 'next packet number to be sent' in the CTS is smaller or
+	 * equal to an already sent packet it is a retransmit request.
+	 */
+	if (session->pkt.tx >= pkt) {
+		session->pkt.retransmits++;
+		if (session->pkt.retransmits >= J1939_CTS_MAX_NUM_TRANSMITS) {
+			err = J1939_XTP_ABORT_FAULT;
+			goto out_session_cancel;
+		}
+	} else {
+		session->pkt.retransmits = 0;
+	}
+
 	/* set packet counters only when not CTS(0) */
 	session->pkt.tx_acked = pkt - 1;
 	j1939_session_skb_drop_old(session);
@@ -1669,6 +1690,7 @@ j1939_session *j1939_xtp_rx_rts_session_new(struct j1939_priv *priv,
 
 	session->pkt.rx = 0;
 	session->pkt.tx = 0;
+	session->pkt.retransmits = 0;
 
 	session->tskey = priv->rx_tskey++;
 	j1939_sk_errqueue(session, J1939_ERRQUEUE_RX_RTS);

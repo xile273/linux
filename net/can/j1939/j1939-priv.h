@@ -285,6 +285,8 @@ struct j1939_session {
 		unsigned int block;
 		/* dpo - ETP.CM_DPO, Data Packet Offset */
 		unsigned int dpo;
+		/* retransmits - amount of received retransmit requests (including holds) */
+		unsigned int retransmits;
 	} pkt;
 	struct hrtimer txtimer, rxtimer;
 };
